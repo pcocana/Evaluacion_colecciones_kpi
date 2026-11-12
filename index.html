@@ -774,10 +774,10 @@ if(sn){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null}),pre={};r
 const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:null}),h=rows.length?Object.keys(rows[0]).map(norm):[];
 if(h.includes('fecha_de_retiro')){const A={tot:0,sinFecha:0,por:{},adqAnio:{}};rows.forEach(r=>{const y=anioDe(r[keyN(r,'fecha_de_retiro')]),mo=norm(r[keyN(r,'motivo_de_retiro')]||''),dano=r[keyN(r,'estado_de_dano')],ya=anioDe(r[keyN(r,'fecha_de_adquisicion')]);
 A.tot++;if(ya)A.adqAnio[ya]=(A.adqAnio[ya]||0)+1;if(!y){A.sinFecha++;return}const o=A.por[y]=A.por[y]||{tot:0,elim:0,perd:0,det:0};o.tot++;
-if(mo.includes('no_encontrado')||mo.includes('perdida'))o.perd++;else o.elim++;if(mo.includes('deterioro')||(dano!=null&&String(dano).trim()!==''))o.det++});INT.ret=A;INT.nombres.ret=f.name}
-else if(h.includes('fecha_adquisicion')){const A={tot:0,sinFecha:0,por:{}};rows.forEach(r=>{const y=anioDe(r[keyN(r,'fecha_adquisicion')]);A.tot++;if(!y){A.sinFecha++;return}A.por[y]=(A.por[y]||0)+1});INT.adq=A;INT.nombres.adq=f.name}
+if(mo.includes('no_encontrado')||mo.includes('perdida'))o.perd++;else o.elim++;if(mo.includes('deterioro')||(dano!=null&&String(dano).trim()!==''))o.det++});INT.ret=A;INT.nombres.ret=f.name;INT.rt=leerTitulosRet(rows)}
+else if(h.includes('fecha_adquisicion')){const A={tot:0,sinFecha:0,por:{}};rows.forEach(r=>{const y=anioDe(r[keyN(r,'fecha_adquisicion')]);A.tot++;if(!y){A.sinFecha++;return}A.por[y]=(A.por[y]||0)+1});INT.adq=A;INT.nombres.adq=f.name;INT.at=leerTitulosAdq(rows)}
 else toast('No reconocí el archivo '+f.name+' (¿es de Analítica, Retirados, Adquisiciones, Bibliografías o Compras?).')}catch(e){toast('Error leyendo '+f.name+': '+e.message)}}
-render()}
+calcTitulos();render()}
 function calcInt(){const g=id=>document.getElementById(id),ej=parseFloat(g('i_ej').value),bib=g('i_bib').value.trim()||'Biblioteca',d=+g('i_d').value,h=+g('i_h').value,parc=g('i_parc').checked,notas=[];
 if(!(h>=d)){toast('El año «hasta» debe ser mayor o igual que «desde».');return}
 const adqY=y=>(INT.adq?(INT.adq.por[y]||0):0)+(INT.ret?(INT.ret.adqAnio[y]||0):0),retY=y=>INT.ret?(INT.ret.por[y]?.tot||0):0;
@@ -877,11 +877,52 @@ ws=XLSX.utils.aoa_to_sheet([['Título','Año','Cantidad','Precio','Estado','Come
 ws=XLSX.utils.aoa_to_sheet([['Título','Observación'],...c.nc.map(x=>[x.t,x.ss?'sin stock':''])]);ws['!cols']=[{wch:90},{wch:14}];XLSX.utils.book_append_sheet(wb,ws,'No comprados');XLSX.writeFile(wb,'panel_compras.xlsx')}
 
 'use strict';
+/* ===== Panel general: títulos retirados vs títulos adquiridos (cruce por «Número de registro Koha») ===== */
+INT.rt=null;INT.at=null;
+function leerTitulosRet(rows){const g=(r,n)=>r[keyN(r,n)];return rows.map(r=>{const mo=norm(g(r,'motivo_de_retiro')||''),dano=g(r,'estado_de_dano');
+let m='otro';if(mo.includes('obsolescencia'))m='obs';else if(mo.includes('no_encontrado')||mo.includes('perdida'))m='perd';else if(mo.includes('deterioro')||(dano!=null&&String(dano).trim()!==''))m='det';
+const id=g(r,'numero_de_registro_koha');return{id:id==null||id===''?null:String(id),y:anioDe(g(r,'fecha_de_retiro')),ya:anioDe(g(r,'fecha_de_adquisicion')),m}})}
+function leerTitulosAdq(rows){return rows.map(r=>{const id=r[keyN(r,'numero_de_registro_koha')];return{id:id==null||id===''?null:String(id),y:anioDe(r[keyN(r,'fecha_adquisicion')])}})}
+function calcTitulos(){if(!INT.rt&&!INT.at)return;const P={},sin={ret:0,adq:0},A={},R={};
+const yr=y=>P[y]=P[y]||{y,adqEj:0,adqTit:0,retEj:0,retTit:0,obs:0,perd:0,det:0,otro:0};
+const adqLista=[...(INT.at||[]),...(INT.rt||[]).map(r=>({id:r.id,y:r.ya}))];
+adqLista.forEach(r=>{if(!r.y)return;const o=yr(r.y);o.adqEj++;if(r.id==null){sin.adq++;return}(A[r.y]=A[r.y]||new Set()).add(r.id)});
+(INT.rt||[]).forEach(r=>{if(!r.y)return;const o=yr(r.y);o.retEj++;o[r.m]++;if(r.id==null){sin.ret++;return}(R[r.y]=R[r.y]||new Set()).add(r.id)});
+Object.values(P).forEach(o=>{o.adqTit=(A[o.y]||new Set()).size;o.retTit=(R[o.y]||new Set()).size});
+const tA=new Set(),tR=new Set();Object.values(A).forEach(s=>s.forEach(x=>tA.add(x)));Object.values(R).forEach(s=>s.forEach(x=>tR.add(x)));
+let ambos=0;tR.forEach(x=>{if(tA.has(x))ambos++});
+S.titulos={filas:Object.values(P).sort((a,b)=>a.y-b.y),totAdq:tA.size,totRet:tR.size,ambos,sin,adq:!!INT.at,ret:!!INT.rt,fecha:new Date().toLocaleString('es-CL'),arch:[INT.nombres.adq,INT.nombres.ret].filter(Boolean).join(' + ')};persist()}
+function vTitulos(M){const t=S.titulos;
+if(!t){M.innerHTML=`<h2>Títulos retirados vs adquiridos</h2><div class="card empty"><p class="mut">Cargue en «Integrar informes» los archivos de Koha de <b>ítems retirados</b> y de <b>adquisiciones</b>. Se cruzan por «Número de registro Koha» (el número de título).</p><button class="btn" data-go="integrar">Ir a Integrar informes</button></div>`;return}
+const F=t.filas,cy=new Date().getFullYear(),sum=k=>F.reduce((a,o)=>a+o[k],0),box=id=>`<div class="card"><div class="chartbox" style="height:300px"><canvas id="${id}"></canvas></div></div>`,
+kp=(l,v,s='')=>`<div class="card"><div class="mut" style="font-size:12px">${l}</div><div style="font-size:26px;font-weight:700;color:var(--navy)">${v}</div><div class="mut" style="font-size:12px">${s}</div></div>`;
+const falta=!t.adq||!t.ret?`<div class="alert w">Falta cargar el archivo de ${!t.adq?'adquisiciones':'ítems retirados'}: la comparación está incompleta.</div>`:'';
+M.innerHTML=`<h2>Títulos retirados vs adquiridos <span class="mut" style="font-size:14px;font-weight:400">· ${esc(t.arch)} · ${esc(t.fecha)}</span></h2>${falta}
+<div class="grid g4">${kp('Títulos adquiridos',nf(t.totAdq),'distintos, todo el periodo')}${kp('Títulos con retiros',nf(t.totRet),'al menos un ejemplar retirado')}${kp('Ejemplares adquiridos',nf(sum('adqEj')))}${kp('Ejemplares retirados',nf(sum('retEj')))}</div>
+<div class="grid g2" style="margin-top:14px">${box('t1')}${box('t2')}</div>
+<h3>Resumen por año</h3><div class="scroll"><table><tr><th>Año</th><th>Títulos adquiridos</th><th>Títulos retirados</th><th>Saldo de títulos</th><th>Ejemplares adquiridos</th><th>Ejemplares retirados</th><th>Saldo de ejemplares</th><th>Obsolescencia</th><th>Pérdida / no encontrado</th><th>Deterioro</th><th>Otro motivo</th></tr>
+${F.map(o=>`<tr><td><b>${o.y}${o.y===cy?' (parcial)':''}</b></td><td>${nf(o.adqTit)}</td><td>${nf(o.retTit)}</td><td>${nf(o.adqTit-o.retTit)}</td><td>${nf(o.adqEj)}</td><td>${nf(o.retEj)}</td><td>${nf(o.adqEj-o.retEj)}</td><td>${nf(o.obs)}</td><td>${nf(o.perd)}</td><td>${nf(o.det)}</td><td>${nf(o.otro)}</td></tr>`).join('')}
+<tr style="font-weight:700"><td>Total</td><td colspan="2" class="mut" style="font-weight:400">(distintos: ${nf(t.totAdq)} / ${nf(t.totRet)})</td><td></td><td>${nf(sum('adqEj'))}</td><td>${nf(sum('retEj'))}</td><td>${nf(sum('adqEj')-sum('retEj'))}</td><td>${nf(sum('obs'))}</td><td>${nf(sum('perd'))}</td><td>${nf(sum('det'))}</td><td>${nf(sum('otro'))}</td></tr></table></div>
+<h3>Cómo leerlo</h3><div class="alert o"><ul style="margin:0 0 0 18px;padding:0">
+<li><b>Títulos</b> = números de registro Koha distintos; un título con varios ejemplares cuenta una vez por año. <b>Ejemplares</b> = ítems físicos.</li>
+<li>${nf(t.ambos)} título(s) tienen tanto adquisiciones como retiros en el periodo. Esto <b>no</b> mide reposición: no se sabe si lo adquirido reemplaza a lo retirado.</li>
+<li>Los ejemplares adquiridos incluyen los que ya fueron retirados (se toma su fecha de adquisición del archivo de retirados).</li>
+<li>Los retiros por «Item Retirado», sin motivo específico, quedan en «Otro motivo».</li>
+${t.sin.adq||t.sin.ret?`<li>Sin número de registro: ${nf(t.sin.adq)} adquisición(es) y ${nf(t.sin.ret)} retiro(s) cuentan como ejemplares pero no como títulos.</li>`:''}
+<li>Ítems sin fecha de adquisición o de retiro no se cuentan en ningún año.</li></ul></div>
+<p style="margin-top:12px" class="row"><button class="btn" data-act="xlstitulos">⬇️ Descargar en Excel</button><button class="btn red sm" data-act="borrartitulos">Quitar panel</button></p>`;
+draw('t1',{type:'bar',data:{labels:F.map(o=>o.y),datasets:[{label:'Títulos adquiridos',data:F.map(o=>o.adqTit),backgroundColor:HEX.verde},{label:'Títulos retirados',data:F.map(o=>o.retTit),backgroundColor:HEX.rojo}]},options:{plugins:{...T_('Títulos adquiridos vs retirados por año'),legend:{position:'bottom'}}}});
+draw('t2',{type:'bar',data:{labels:F.map(o=>o.y),datasets:[{label:'Obsolescencia',data:F.map(o=>o.obs),backgroundColor:'#8A94A6'},{label:'Pérdida / no encontrado',data:F.map(o=>o.perd),backgroundColor:'#D64545'},{label:'Deterioro',data:F.map(o=>o.det),backgroundColor:'#F2B01E'},{label:'Otro motivo',data:F.map(o=>o.otro),backgroundColor:'#6FA3E8'}]},options:{plugins:{...T_('Ejemplares retirados por motivo'),legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true}}}})}
+function xlsTitulos(){const t=S.titulos,wb=XLSX.utils.book_new(),H=['Año','Títulos adquiridos','Títulos retirados','Saldo de títulos','Ejemplares adquiridos','Ejemplares retirados','Saldo de ejemplares','Obsolescencia','Pérdida / no encontrado','Deterioro','Otro motivo'];
+const ws=XLSX.utils.aoa_to_sheet([H,...t.filas.map(o=>[o.y,o.adqTit,o.retTit,o.adqTit-o.retTit,o.adqEj,o.retEj,o.adqEj-o.retEj,o.obs,o.perd,o.det,o.otro])]);ws['!cols']=H.map(()=>({wch:18}));XLSX.utils.book_append_sheet(wb,ws,'Títulos por año');
+XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Títulos distintos adquiridos',t.totAdq],['Títulos distintos con retiros',t.totRet],['Títulos con adquisiciones y retiros',t.ambos],['Nota','Los títulos se cruzan por Número de registro Koha. No mide reposición.']]),'Notas');XLSX.writeFile(wb,'titulos_retirados_vs_adquiridos.xlsx')}
+
+'use strict';
 /* ===================== Estado y persistencia ===================== */
 const LS='kpi_colecciones_v1';let memStore=null;
-const S={rows:[],cfg:JSON.parse(JSON.stringify(OBJ0)),aj:{...AJ0},recs:[],informes:[],compras:null,ui:{tab:'dashboard',bib:'',per:'',fac:[],mat:[],tip:[],open:'',pieDim:'tipo_documental',evo:['acierto','reposicion','disp_bib_rec','no_satisfechas'],compK:'acierto',compD:'facultad',cmp:'',edit:null},imp:null};
-function persist(){const o=JSON.stringify({rows:S.rows,cfg:S.cfg,aj:S.aj,recs:S.recs,informes:S.informes,compras:S.compras});try{localStorage.setItem(LS,o)}catch(e){memStore=o;toast('⚠️ No se pudo guardar en el navegador; descargue un respaldo (Configuración).')}}
-function load(){let o=null;try{o=localStorage.getItem(LS)}catch(e){}if(o){try{const d=JSON.parse(o);S.rows=d.rows||[];S.cfg={...S.cfg,...(d.cfg||{})};S.aj={...S.aj,...(d.aj||{})};S.recs=d.recs||[];S.informes=d.informes||[];S.compras=d.compras||null}catch(e){}}}
+const S={rows:[],cfg:JSON.parse(JSON.stringify(OBJ0)),aj:{...AJ0},recs:[],informes:[],compras:null,titulos:null,ui:{tab:'dashboard',bib:'',per:'',fac:[],mat:[],tip:[],open:'',pieDim:'tipo_documental',evo:['acierto','reposicion','disp_bib_rec','no_satisfechas'],compK:'acierto',compD:'facultad',cmp:'',edit:null},imp:null};
+function persist(){const o=JSON.stringify({rows:S.rows,cfg:S.cfg,aj:S.aj,recs:S.recs,informes:S.informes,compras:S.compras,titulos:S.titulos});try{localStorage.setItem(LS,o)}catch(e){memStore=o;toast('⚠️ No se pudo guardar en el navegador; descargue un respaldo (Configuración).')}}
+function load(){let o=null;try{o=localStorage.getItem(LS)}catch(e){}if(o){try{const d=JSON.parse(o);S.rows=d.rows||[];S.cfg={...S.cfg,...(d.cfg||{})};S.aj={...S.aj,...(d.aj||{})};S.recs=d.recs||[];S.informes=d.informes||[];S.compras=d.compras||null;S.titulos=d.titulos||null}catch(e){}}}
 function toast(m){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.style.cssText='position:fixed;bottom:20px;right:20px;background:#12355B;color:#fff;padding:10px 16px;border-radius:8px;z-index:99;max-width:420px;box-shadow:0 4px 14px rgba(0,0,0,.3)';document.body.appendChild(t)}
 t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4200)}
 const bibs=()=>[...new Set(S.rows.map(r=>r.biblioteca))].sort();
@@ -904,14 +945,14 @@ function cargarDemo(){demo().forEach(upsert);persist();S.ui.bib='Biblioteca Univ
 function cargarCaso(){upsert({...Object.fromEntries(NUM.map(k=>[k,null])),...CASO});persist();S.ui.bib=CASO.biblioteca;S.ui.per='2024';ensureSel();toast('Caso de validación cargado.');go('dashboard')}
 
 /* ===================== Navegación ===================== */
-const TABS=[['dashboard','📊 Dashboard'],['datos','✍️ Ingreso de datos'],['importar','📂 Importar'],['integrar','🔗 Integrar informes'],['compras','🛒 Compras'],['graficos','📈 Gráficos'],['diagnostico','🩺 Diagnóstico'],['informes','📄 Informes'],['historial','🕘 Historial'],['config','⚙️ Configuración'],['validacion','✔️ Validación']];
+const TABS=[['dashboard','📊 Dashboard'],['datos','✍️ Ingreso de datos'],['importar','📂 Importar'],['integrar','🔗 Integrar informes'],['compras','🛒 Compras'],['titulos','📖 Títulos'],['graficos','📈 Gráficos'],['diagnostico','🩺 Diagnóstico'],['informes','📄 Informes'],['historial','🕘 Historial'],['config','⚙️ Configuración'],['validacion','✔️ Validación']];
 const CON_FILTRO=['dashboard','graficos','diagnostico','informes','historial'];
 function go(t){S.ui.tab=t;render()}
 function render(){ensureSel();document.getElementById('nav').innerHTML=TABS.map(([k,l])=>`<button class="${S.ui.tab===k?'on':''}" data-go="${k}">${l}</button>`).join('');renderFilters();
 const M=document.getElementById('main'),t=S.ui.tab;const c=CON_FILTRO.includes(t)&&S.rows.length?buildCtx(S):null;
 if(CON_FILTRO.includes(t)&&!S.rows.length){M.innerHTML=emptyState();return}
 if(CON_FILTRO.includes(t)&&c&&c.vacio){M.innerHTML=`<div class="alert w">No hay registros para el periodo y filtros seleccionados (${esc(c.filtros)}). Cambie los filtros.</div>`;return}
-({dashboard:()=>vDashboard(M,c),datos:()=>vDatos(M),importar:()=>vImportar(M),integrar:()=>vIntegrar(M),compras:()=>vCompras(M),graficos:()=>vGraficos(M,c),diagnostico:()=>vDiag(M,c),informes:()=>vInformes(M,c),historial:()=>vHistorial(M,c),config:()=>vConfig(M),validacion:()=>vValid(M)})[t]()}
+({dashboard:()=>vDashboard(M,c),datos:()=>vDatos(M),importar:()=>vImportar(M),integrar:()=>vIntegrar(M),compras:()=>vCompras(M),titulos:()=>vTitulos(M),graficos:()=>vGraficos(M,c),diagnostico:()=>vDiag(M,c),informes:()=>vInformes(M,c),historial:()=>vHistorial(M,c),config:()=>vConfig(M),validacion:()=>vValid(M)})[t]()}
 function emptyState(){return`<div class="card empty"><h2>Aún no hay datos</h2><p class="mut">Ingrese datos manualmente, importe un Excel/CSV o cargue datos de demostración para ver el dashboard.</p><div class="row" style="justify-content:center"><button class="btn" data-act="demo">Cargar datos de demostración</button><button class="btn sec" data-go="datos">Ingresar manualmente</button><button class="btn sec" data-go="importar">Importar archivo</button></div></div>`}
 function ms(id,label,opts,sel){return`<details class="ms" ${S.ui.open===id?'open':''} data-ms="${id}"><summary>${label}: ${sel.length?esc(sel.length>2?sel.length+' seleccionados':sel.join(', ')):'todos'}</summary><div class="pop">${opts.map(o=>`<label><input type="checkbox" data-msv="${id}" value="${esc(o)}" ${sel.includes(o)?'checked':''}> ${esc(o)}</label>`).join('')}</div></details>`}
 function renderFilters(){const F=document.getElementById('filters');if(!CON_FILTRO.includes(S.ui.tab)||!S.rows.length){F.style.display='none';return}F.style.display='flex';
@@ -975,7 +1016,7 @@ if(Object.values(o).every(v=>v==null||v===''))return;I.rows.push(r)});aplicarBib
 function aplicarBibDef(){const I=S.imp;I.rows.forEach(r=>{if(!Object.values(I.mapeo).includes('biblioteca')||!r.biblioteca)r.biblioteca=I.bibDef});I.inc=I.inc.filter(i=>i.n==='error'&&i.msg.includes('no numérico')||false).concat(validar(I.rows))
 ;const seen=new Set();I.inc=I.inc.filter(i=>{const k=i.n+i.fila+i.msg;if(seen.has(k))return false;seen.add(k);return true})}
 async function leerArchivo(f){const ext=f.name.split('.').pop().toLowerCase();try{
-if(ext==='json'){const t=await f.text(),d=JSON.parse(t);if(d&&d.rows&&d.cfg){if(confirm('Este JSON es un respaldo completo. ¿Restaurarlo y REEMPLAZAR todos los datos actuales?')){S.rows=d.rows;S.cfg={...OBJ0,...d.cfg};S.aj={...AJ0,...d.aj};S.recs=d.recs||[];S.informes=d.informes||[];S.compras=d.compras||null;persist();toast('Respaldo restaurado.');S.ui.bib='';render()}return}
+if(ext==='json'){const t=await f.text(),d=JSON.parse(t);if(d&&d.rows&&d.cfg){if(confirm('Este JSON es un respaldo completo. ¿Restaurarlo y REEMPLAZAR todos los datos actuales?')){S.rows=d.rows;S.cfg={...OBJ0,...d.cfg};S.aj={...AJ0,...d.aj};S.recs=d.recs||[];S.informes=d.informes||[];S.compras=d.compras||null;S.titulos=d.titulos||null;persist();toast('Respaldo restaurado.');S.ui.bib='';render()}return}
 const ws=XLSX.utils.json_to_sheet(Array.isArray(d)?d:[d]);S.imp={name:f.name,wb:{SheetNames:['Hoja1'],Sheets:{Hoja1:ws}},hojas:['Hoja1'],hoja:'Hoja1',bibDef:S.ui.bib||'Mi biblioteca'}}
 else{let wb;if(ext==='csv'||ext==='tsv'||ext==='txt'){const b=await f.arrayBuffer();let t=new TextDecoder('utf-8',{fatal:true});try{t=t.decode(b)}catch(e){t=new TextDecoder('latin1').decode(b)}wb=XLSX.read(t.replace(/^﻿/,''),{type:'string',raw:true})}else wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
 S.imp={name:f.name,wb,hojas:wb.SheetNames,hoja:wb.SheetNames[0],bibDef:S.ui.bib||f.name.replace(/\.[^.]+$/,'')}}
@@ -1047,14 +1088,14 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-go],[data-
 if(t.dataset.go)return go(t.dataset.go);if(t.dataset.edit){S.ui.edit=t.dataset.edit;render();return scrollTo(0,0)}
 if(t.dataset.del){if(confirm('¿Eliminar este registro?')){S.rows=S.rows.filter(r=>r.id!==t.dataset.del);persist();render()}return}
 const a=t.dataset.act,c=()=>buildCtx(S);
-const A={xlscompras:xlsCompras,borrarcompras:()=>{if(confirm('¿Quitar el listado de compras cargado?')){S.compras=null;persist();render()}},calcbib:calcBib,aplicarbib:aplicarBib,calcint:calcInt,aplicarint:aplicarInt,elegirint:()=>{const f=document.getElementById('filein');f.value='';f.multiple=true;f.onchange=()=>{f.multiple=false;f.files.length&&leerInt([...f.files])};f.click()},demo:cargarDemo,caso:cargarCaso,guardar:guardarManual,limpiar:()=>{S.ui.edit=null;render()},elegir:()=>{const f=document.getElementById('filein');f.value='';f.onchange=()=>f.files[0]&&leerArchivo(f.files[0]);f.click()},plantilla,
+const A={xlstitulos:xlsTitulos,borrartitulos:()=>{if(confirm('¿Quitar el panel de títulos?')){S.titulos=null;persist();render()}},xlscompras:xlsCompras,borrarcompras:()=>{if(confirm('¿Quitar el listado de compras cargado?')){S.compras=null;persist();render()}},calcbib:calcBib,aplicarbib:aplicarBib,calcint:calcInt,aplicarint:aplicarInt,elegirint:()=>{const f=document.getElementById('filein');f.value='';f.multiple=true;f.onchange=()=>{f.multiple=false;f.files.length&&leerInt([...f.files])};f.click()},demo:cargarDemo,caso:cargarCaso,guardar:guardarManual,limpiar:()=>{S.ui.edit=null;render()},elegir:()=>{const f=document.getElementById('filein');f.value='';f.onchange=()=>f.files[0]&&leerArchivo(f.files[0]);f.click()},plantilla,
 cancelarimp:()=>{S.imp=null;render()},confirmarimp:()=>{const I=S.imp,bad=new Set(I.inc.filter(i=>i.n==='error').map(i=>i.fila));let n=0;I.rows.filter(r=>!bad.has(r._fila)).forEach(r=>{upsert(r);n++});persist();const l=I.rows.find(r=>!bad.has(r._fila));
 if(l){S.ui.bib=l.biblioteca;S.ui.per=''}S.imp=null;toast(`${n} fila(s) importadas.`);go('dashboard')},
 borrarbib:()=>{if(confirm('¿Eliminar TODOS los registros de '+S.ui.bib+'?')){S.rows=S.rows.filter(r=>r.biblioteca!==S.ui.bib);persist();render()}},
 regrec:()=>registrarRecs(c()),genera:()=>generar(c(),'ambos'),soloPdf:()=>generar(c(),'pdf'),soloXlsx:()=>generar(c(),'xlsx'),
 delper:()=>{const p=document.getElementById('delper').value;if(confirm(`¿Eliminar el periodo ${p} de ${S.ui.bib}?`)){S.rows=S.rows.filter(r=>!(r.biblioteca===S.ui.bib&&r.periodo===p));persist();render()}},
 savecfg:()=>{persist();toast('Objetivos guardados.');},resetcfg:()=>{if(confirm('¿Restablecer los objetivos de referencia?')){S.cfg=JSON.parse(JSON.stringify(OBJ0));persist();render()}},
-backup:()=>download(`respaldo_colecciones_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({rows:S.rows,cfg:S.cfg,aj:S.aj,recs:S.recs,informes:S.informes,compras:S.compras}),'application/json'),
+backup:()=>download(`respaldo_colecciones_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({rows:S.rows,cfg:S.cfg,aj:S.aj,recs:S.recs,informes:S.informes,compras:S.compras,titulos:S.titulos}),'application/json'),
 restaurar:()=>{const f=document.getElementById('filein');f.value='';f.onchange=()=>f.files[0]&&leerArchivo(f.files[0]);f.click()},
 borrartodo:()=>{if(confirm('Se borrarán TODOS los datos de este navegador. ¿Continuar?')){S.rows=[];S.recs=[];S.informes=[];persist();S.ui.bib='';render()}}};A[a]&&A[a]()});
 document.addEventListener('change',e=>{const t=e.target,d=t.dataset;
